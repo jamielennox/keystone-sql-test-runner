@@ -1,9 +1,18 @@
 
-TEMPLATE=backend_sql.template
+DIR=`dirname $(realpath $0)`
+TEMPLATE=$DIR/backend_sql.template
 if [ ! -e $TEMPLATE ]; then
     echo "Cannot find file $TEMPLATE"
     exit
 fi
+
+while [ ! -d .git ]; do
+    cd ..
+    if [ `pwd` = "/" ]; then
+        echo "Couldn't find root keystone directory"
+        exit
+    fi
+done
 
 KEYSTONEDBSERVER=localhost
 KEYSTONEUSER=keystonetest
@@ -30,7 +39,7 @@ case $1 in
         # CREATE DATABASE keystonetest;
         # grant all on keystonetest.* to keystonetest@localhost identified by 'keystonetest'
 
-        TABLES=`mysql -u$KEYSTONEUSER -p$KEYSTONEPASS --batch --skip-column-names -e "SELECT concat('DROP TABLE IF EXISTS ', table_name, ';') FROM information_schema.tables WHERE table_schema = '$KEYSTONEDB'"`
+        TABLES=`mysql -u$KEYSTONEUSER -p$KEYSTONEPASS --batch --skip-column-names -e "SELECT concat('DROP TABLE ', table_name, ';') FROM information_schema.tables WHERE table_schema = '$KEYSTONEDB'"`
         if [ -n "$TABLES" ]; then
             mysql -u$KEYSTONEUSER -p$KEYSTONEPASS -D $KEYSTONEDB -e "SET FOREIGN_KEY_CHECKS = 0; $TABLES SET FOREIGN_KEY_CHECKS = 1;"
         fi
@@ -41,16 +50,18 @@ case $1 in
         CONNECTION="sqlite://"
         ;;
     "f" | "file" )
+        rm ./keystonedb.db
         NAME=file
         CONNECTION="sqlite:///keystone.db"
         ;;
     "a" | "all" )
+        shift
         echo "*** SQLITE ***"
-        $0 sqlite $2
+        $0 sqlite $@
         echo "*** MYSQL ***"
-        $0 mysql $2
+        $0 mysql $@
         echo "*** POSTGRES ***"
-        $0 postgres $2
+        $0 postgres $@
         echo "*** DONE ***"
         exit
         ;;
@@ -63,7 +74,9 @@ esac
 shift
 sed -e "s;%CONNECTION%;$CONNECTION;" $TEMPLATE > tests/backend_sql.conf
 
-rm -rf vendor/*
+# rm -rf vendor
+find tests/ -name *.pyc | xargs rm
+find keystone/ -name *.pyc | xargs rm
 
 # TESTNAME=
 # if [ ! -z $2 ]; then
@@ -71,6 +84,9 @@ rm -rf vendor/*
 #     TESTNAME=$2
 # fi
 
-nosetests -s --openstack-stdout $@ # 2>&1 | tee test_$NAME.log test_last.log
+nosetests -s --openstack-stdout $@ 2>&1 | tee test_$NAME.log test_last.log
+VAL=$?
 
 git checkout tests/backend_sql.conf
+
+exit $VAL
